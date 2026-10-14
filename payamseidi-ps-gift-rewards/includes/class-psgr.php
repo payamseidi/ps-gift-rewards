@@ -358,20 +358,31 @@ final class PSGR_Plugin {
         if ($changed) { $cart->calculate_totals(); }
         $busy = false;
     }
-    public function validate(): void {
-        if (!function_exists('WC') || !WC()->cart) { return; }
-        $cart = WC()->cart;
+    /** One validation contract for Classic checkout and the Store API. */
+    public function gift_issues($cart): array {
         $campaign = $this->campaign($cart);
         $allowed = $campaign ? $this->gifts($campaign) : [];
         $count = 0;
+        $issues = [];
         foreach ($cart->get_cart() as $line) {
             if (empty($line[self::MARK])) { continue; }
             $count++;
             if (!$this->valid_gift($line, $campaign, $allowed)) {
-                wc_add_notice(__('Your gift is no longer eligible. Please review your cart.', 'payamseidi-ps-gift-rewards'), 'error'); return;
+                $issues['PSGR-401'] = __('Your gift is no longer eligible. Please review your cart.', 'payamseidi-ps-gift-rewards');
             }
         }
-        if ($count > 1) { wc_add_notice(__('Only one gift can be selected.', 'payamseidi-ps-gift-rewards'), 'error'); }
+        if ($count > 1) { $issues['PSGR-402'] = __('Only one gift can be selected.', 'payamseidi-ps-gift-rewards'); }
+        return $issues;
+    }
+    public function store_validate($errors, $cart = null): void {
+        if (!($errors instanceof WP_Error) || !function_exists('WC')) { return; }
+        $cart = $cart instanceof WC_Cart ? $cart : WC()->cart;
+        if (!$cart) { return; }
+        foreach ($this->gift_issues($cart) as $code => $message) { $errors->add($code, $message); }
+    }
+    public function validate(): void {
+        if (!function_exists('WC') || !WC()->cart) { return; }
+        foreach ($this->gift_issues(WC()->cart) as $code => $message) { wc_add_notice($message, 'error'); }
     }
     public function item_data($data, $line) {
         if (!empty($line[self::MARK])) { $data[] = ['key' => PSGR_Localization::text('reward'), 'value' => PSGR_Localization::text('complimentary')]; }
