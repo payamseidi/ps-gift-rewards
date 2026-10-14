@@ -19,9 +19,10 @@ jobs:
         run: |
           php tests/rules-smoke.php
           php tests/blocks-smoke.php
+          php tests/alpha04-smoke.php
       - name: Package WordPress plugin
-        run: zip -r ps-gift-rewards-0.3.0-alpha.1.zip payamseidi-ps-gift-rewards -x '*/.DS_Store'
+        run: zip -r ps-gift-rewards-0.4.0-alpha.1.zip payamseidi-ps-gift-rewards -x '*/.DS_Store'
       - uses: actions/upload-artifact@v4
         with:
-          name: ps-gift-rewards-0.3.0-alpha.1
-          path: ps-gift-rewards-0.3.0-alpha.1.zip
+          name: ps-gift-rewards-0.4.0-alpha.1
+          path: ps-gift-rewards-0.4.0-alpha.1.zip
