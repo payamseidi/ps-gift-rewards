@@ -1,56 +1,43 @@
-# PS Gift Rewards — Project Status
+# PS Gift Rewards — Development Status
 
-**Version:** 0.2.0-alpha.1 · **Date:** 2026-10-14 · **Status:** Development/Staging
+Version: 0.3.0-alpha.1 | Date: 2026-10-14 | Status: STAGING ALPHA
 
-## Stage scope
+## Scope
+WooCommerce Cart & Checkout Blocks via Store API and unified gift selection.
 
-Generic campaign repository, deterministic rule engine, legacy option migration and hardened WooCommerce Classic integration.
+## Completed
+- Multi-campaign selection with country conditions, after-discount threshold, coupons, date windows and priority.
+- Classic WooCommerce cart/checkout gift chooser and gift order line metadata.
+- Store API wc/store/cart extension under namespace ps-gift-rewards.
+- Store API cart/extensions callback supports choose/remove with friendly error codes.
+- Cart and Checkout Blocks IntegrationInterface and ExperimentalOrderMeta SlotFill.
+- Shared select_gift() with server-side checks for gift pool, country, campaign, quantity and stock.
+- 23 standalone rule assertions plus 18 mocked Store API/cart assertions; syntax check and packaging workflow.
+- HPOS support declaration, Cart/Checkout Blocks support declaration (not E2E certified).
 
-## Completed in this stage
+## Not complete
+- Real WordPress/WooCommerce checkout end-to-end validation with guest sessions and changing addresses.
+- Test on actual Block Checkout, payment integrations, variations, concurrency and refunds.
+- PS Tools Core admin-shell integration (admin currently under WooCommerce), custom permissions and diagnostics.
+- Polylang EN/IT mapping, RTL, product selection UI, campaign theming.
+- Claims, analytics, cost reporting, event bridge and notifications.
+- Multiple gift stacking, richer rule builder, multi-currency accounting policy.
 
-- Versioned `psgr_campaigns_v2` WP option containing ordered campaigns (no custom tables yet).
-- Legacy `psgr_campaign` settings migrated without deleting the old settings.
-- Multi-campaign list and editor (create/edit/delete/status/priority/scheduling).
-- Explicit country inclusion/exclusion, minimum after-discount products total, excluded coupons.
-- First eligible campaign selected by priority, one gift max per cart/order.
-- PHP-only rule evaluation with fail-closed unsupported operators.
-- Validate cart item product/variation ID, campaign identity, quantity, stock and eligibility.
-- Variant attribute mapping during add-to-cart; gift line product object cloned before price-zero operation.
-- Post-total cleanup for eligibility changes from coupons or cart recalculations.
-- HPOS compatibility declaration; Cart/Checkout Blocks declared **incompatible**.
-- Automated PHP syntax and standalone rule/migration smoke checks.
+## Risks
+- Alpha: staging only, not production certified. Simulated tests cannot establish live compatibility.
+- ExperimentalOrderMeta SlotFill may change with future WooCommerce updates.
+- Only one gift and top-priority campaign; no stacking.
+- Threshold excludes tax, shipping and gift rows, uses non-gift line_total after discounts.
+- Gift choice does not reserve stock before normal WooCommerce checkout processing.
 
-## In progress / backlog
+## Contracts
+- WP options: psgr_campaigns_v2, legacy psgr_campaign retained.
+- Cart data: _psgr_reward, _psgr_gift_id, _psgr_campaign, _psgr_original_price.
+- Order item metadata: _psgr_reward, _psgr_campaign, _psgr_original_price.
+- Store API: wc/store/v1/cart extensions["ps-gift-rewards"] provides visible/eligible/campaign_id/title/message/remaining/selected_id/gifts.
+- Store API update: cart/extensions namespace=ps-gift-rewards, data={action:"choose",id:N} or {action:"remove",id:0}.
+- Classic AJAX: psgr_choose with nonce; admin capability manage_woocommerce.
+- PS Event Contract: not yet added; Core/Messaging/Polylang remain optional future integrations.
 
-- WooCommerce Store API + Cart and Checkout Blocks (next major delivery).
-- Actual in-WP integration tests on supported WordPress/WooCommerce versions.
-- PS Tools Core admin-shell and permissions integration (current menu under WooCommerce).
-- Persistent claims/usage limits, refunds, reporting, actual gift costs and analytics.
-- Rule composer for arbitrary AND/OR groups (engine supports groups, editor currently exposes safe preset clauses only).
-- Customer segmentation, automatic reward distribution, discounts, currency conversion policy.
-- Polylang EN/IT string and product variation mapping.
-- Compatibility with existing promotions, checkout customizations and stock reservation at production scale.
-
-## Known limitations / blockers
-
-- Alpha stage: **DO NOT deploy to a live checkout** without staging acceptance tests.
-- No Cart/Checkout Blocks integration; explicitly marked incompatible.
-- Threshold is the sum of WooCommerce non-gift `line_total` after discounts, excluding tax and shipping. Multi-currency campaigns not yet supported.
-- Selection is not a stock reservation. WooCommerce's stock checks still apply at checkout.
-- Rule context uses WooCommerce's shipping country; must be revalidated after address updates.
-- WordPress/WooCommerce live end-to-end tests have NOT been performed in this environment.
-
-## Dependencies and contracts
-
-- Requires WooCommerce; optional future integrations: PS Tools Core, PS Event Bridge, PS Messaging Connect, Polylang.
-- WP options: `psgr_campaigns_v2` (new); `psgr_campaign` (legacy, read once; retained).
-- Campaign schema: `id`, `name`, `status`, `priority`, `starts_on`, `ends_on`, `min_total`, `max_value`, `gift_ids`, `included_countries`, `excluded_countries`, `excluded_coupons`, `show_progress`, `rule_groups`.
-- Cart line: `_psgr_reward`, `_psgr_gift_id`, `_psgr_original_price`, `_psgr_campaign`.
-- Order item meta: `_psgr_reward`, `_psgr_campaign`, `_psgr_original_price`.
-- AJAX: `wp_ajax_psgr_choose`, `wp_ajax_nopriv_psgr_choose`; nonce `psgr_choose`.
-- API & Event Contract: no public REST endpoints or emitted PS events in this stage.
-- Permissions: WooCommerce `manage_woocommerce` for campaign administration; storefront guest checkout supported.
-
-## Next release
-
-`0.3.0-alpha`: Store API/Blocks integration planning, reliable checkout test matrix, user experience refinements.
+## Next stage
+0.4.0-alpha: live WooCommerce Blocks testing, product picker, admin UX and localization preparation.
