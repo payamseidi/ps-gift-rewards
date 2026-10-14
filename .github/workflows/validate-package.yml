@@ -9,13 +9,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check PHP syntax
-        run: |
-          find payamseidi-ps-gift-rewards -type f -name '*.php' -print0 | xargs -0 -n1 php -l
-      - name: Build WordPress installable ZIP
-        run: zip -r ps-gift-rewards-0.1.0-alpha.1.zip payamseidi-ps-gift-rewards -x '*/.DS_Store'
-      - name: Upload plugin ZIP artifact
-        uses: actions/upload-artifact@v4
+      - name: PHP syntax check
+        run: find payamseidi-ps-gift-rewards -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Rules smoke test
+        run: php tests/rules-smoke.php
+      - name: Package WordPress plugin
+        run: zip -r ps-gift-rewards-0.2.0-alpha.1.zip payamseidi-ps-gift-rewards -x '*/.DS_Store'
+      - uses: actions/upload-artifact@v4
         with:
-          name: ps-gift-rewards-0.1.0-alpha.1
-          path: ps-gift-rewards-0.1.0-alpha.1.zip
+          name: ps-gift-rewards-0.2.0-alpha.1
+          path: ps-gift-rewards-0.2.0-alpha.1.zip
