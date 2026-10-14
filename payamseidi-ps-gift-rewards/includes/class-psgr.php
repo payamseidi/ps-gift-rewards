@@ -82,8 +82,8 @@ final class PSGR_Plugin {
         $all = PSGR_Campaigns::all();
         $id = isset($_GET['campaign']) ? sanitize_key(wp_unslash($_GET['campaign'])) : ($all[0]['id'] ?? 'default');
         $campaign = PSGR_Campaigns::get($id);
-        echo '<div class="wrap"><h1>PS Gift Rewards <small style="font-size:13px">0.2.0-alpha.1 · Payam Seidi</small></h1>';
-        echo '<p>Campaigns &amp; Rule Engine · Classic WooCommerce Cart/Checkout alpha. Cart/Checkout Blocks not yet supported.</p>';
+        echo '<div class="wrap"><h1>PS Gift Rewards <small style="font-size:13px">0.3.0-alpha.1 · Payam Seidi</small></h1>';
+        echo '<p>Campaigns &amp; Rule Engine · Classic and Block Cart/Checkout alpha</p>';
         if (isset($_GET['saved'])) { echo '<div class="notice notice-success"><p>Campaign saved.</p></div>'; }
         echo '<h2>Campaigns</h2><table class="widefat striped"><thead><tr><th>Name</th><th>Status</th><th>Priority</th><th>Threshold</th><th></th></tr></thead><tbody>';
         foreach ($all as $item) {
@@ -160,6 +160,7 @@ final class PSGR_Plugin {
     }
     public function assets(): void {
         $post = get_post();
+        if ($post && (has_block('woocommerce/cart', $post) || has_block('woocommerce/checkout', $post))) { return; }
         if (!is_cart() && !is_checkout() && !($post && has_shortcode((string) $post->post_content, 'ps_gift_rewards'))) { return; }
         wp_enqueue_style('psgr', PSGR_URL.'assets/gifts.css', [], PSGR_VERSION);
         wp_enqueue_script('psgr', PSGR_URL.'assets/gifts.js', ['jquery'], PSGR_VERSION, true);
@@ -202,30 +203,95 @@ final class PSGR_Plugin {
         }
         return 0;
     }
-    public function choose(): void {
-        check_ajax_referer('psgr_choose', 'nonce');
-        if (!function_exists('WC') || !WC()->cart) { wp_send_json_error(['message' => 'Cart unavailable.'], 400); }
+    /** Shared, server-authoritative selection for Classic AJAX and the Store API. */
+    public function select_gift(int $id) {
+        if (!function_exists('WC') || !WC()->cart) {
+            return new WP_Error('PSGR-303', __('Your cart is not available.', 'payamseidi-ps-gift-rewards'));
+        }
         $cart = WC()->cart;
-        $id = isset($_POST['id']) ? absint($_POST['id']) : 0;
         $campaign = $this->campaign($cart);
         $allowed = $campaign ? $this->gifts($campaign) : [];
-        if ($id && (!isset($allowed[$id]) || !PSGR_Rules::campaign_matches($campaign, $this->context($cart)))) {
-            wp_send_json_error(['message' => __('This gift is not available for your order.', 'payamseidi-ps-gift-rewards')], 422);
+        if ($id && (!$campaign || !isset($allowed[$id]))) {
+            return new WP_Error('PSGR-304', __('This gift is not available for your order.', 'payamseidi-ps-gift-rewards'));
         }
-        foreach ($cart->get_cart() as $key => $line) { if (!empty($line[self::MARK])) { $cart->remove_cart_item($key); } }
+        if ($id && !PSGR_Rules::campaign_matches($campaign, $this->context($cart))) {
+            return new WP_Error('PSGR-305', __('Your order no longer qualifies for this gift.', 'payamseidi-ps-gift-rewards'));
+        }
+        if ($id && $this->selected($cart) === $id) { return true; }
+        foreach ($cart->get_cart() as $key => $line) {
+            if (!empty($line[self::MARK])) { $cart->remove_cart_item($key); }
+        }
         if ($id) {
             $p = $allowed[$id];
             $is_variation = $p->is_type('variation');
             $added = $cart->add_to_cart(
-                $is_variation ? $p->get_parent_id() : $id, 1,
+                $is_variation ? $p->get_parent_id() : $id,
+                1,
                 $is_variation ? $id : 0,
                 $is_variation ? $p->get_variation_attributes() : [],
-                [self::MARK => 1, '_psgr_gift_id' => $id, '_psgr_original_price' => (string) $p->get_price(), '_psgr_campaign' => $campaign['id']]
+                [
+                    self::MARK => 1,
+                    '_psgr_gift_id' => $id,
+                    '_psgr_original_price' => (string) $p->get_price(),
+                    '_psgr_campaign' => $campaign['id'],
+                ]
             );
-            if (!$added) { wp_send_json_error(['message' => __('We could not add this gift.', 'payamseidi-ps-gift-rewards')], 422); }
+            if (!$added) {
+                return new WP_Error('PSGR-306', __('We could not add this gift. Please choose another.', 'payamseidi-ps-gift-rewards'));
+            }
         }
         $cart->calculate_totals();
+        return true;
+    }
+    public function choose(): void {
+        check_ajax_referer('psgr_choose', 'nonce');
+        $id = isset($_POST['id']) ? absint($_POST['id']) : 0;
+        $result = $this->select_gift($id);
+        if (is_wp_error($result)) {
+            wp_send_json_error(['message' => $result->get_error_message(), 'code' => $result->get_error_code()], 422);
+        }
         wp_send_json_success(['message' => $id ? 'Gift selected.' : 'Gift removed.']);
+    }
+    /** Data exposed through wc/store/cart/extensions for Cart & Checkout Blocks. */
+    public function store_payload(): array {
+        $empty = [
+            'visible' => false, 'eligible' => false, 'campaign_id' => '',
+            'title' => '', 'message' => '', 'remaining' => '', 'selected_id' => 0, 'gifts' => [],
+        ];
+        if (!function_exists('WC') || !WC()->cart) { return $empty; }
+        $cart = WC()->cart;
+        $campaign = $this->campaign($cart, true);
+        if (!$campaign) { return $empty; }
+        $context = $this->context($cart);
+        $eligible = PSGR_Rules::campaign_matches($campaign, $context);
+        if (!$eligible && !$campaign['show_progress']) { return $empty; }
+        $data = $empty;
+        $data['visible'] = true;
+        $data['eligible'] = (bool) $eligible;
+        $data['campaign_id'] = $campaign['id'];
+        $data['title'] = (string) $campaign['name'];
+        if ($eligible) {
+            $data['message'] = __('Choose one complimentary gift with your order.', 'payamseidi-ps-gift-rewards');
+            $data['selected_id'] = $this->selected($cart);
+            foreach ($this->gifts($campaign) as $id => $p) {
+                $image_id = (int) $p->get_image_id();
+                if (!$image_id && $p->is_type('variation')) {
+                    $parent = wc_get_product($p->get_parent_id());
+                    $image_id = $parent ? (int) $parent->get_image_id() : 0;
+                }
+                $data['gifts'][] = [
+                    'id' => (int) $id,
+                    'name' => $p->get_name(),
+                    'price' => wp_strip_all_tags(wc_price($p->get_price())),
+                    'image' => $image_id ? (string) wp_get_attachment_image_url($image_id, 'woocommerce_thumbnail') : '',
+                ];
+            }
+        } else {
+            $remaining = max(0, (float) $campaign['min_total'] - $context['cart_subtotal']);
+            $data['message'] = __('Add more products to unlock a complimentary gift.', 'payamseidi-ps-gift-rewards');
+            $data['remaining'] = wp_strip_all_tags(wc_price($remaining));
+        }
+        return $data;
     }
     private function cleanup($cart, ?array $campaign, bool $force_zero = false): bool {
         $allowed = $campaign ? $this->gifts($campaign) : [];
