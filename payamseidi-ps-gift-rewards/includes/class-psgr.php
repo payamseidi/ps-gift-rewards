@@ -63,7 +63,7 @@ final class PSGR_Plugin {
         if (!current_user_can('manage_woocommerce')) { wp_die('Forbidden','',['response'=>403]); }
         check_admin_referer('psgr_save');
         $p=isset($_POST['psgr']) && is_array($_POST['psgr']) ? wp_unslash($_POST['psgr']) : [];
-        $ids=array_unique(array_filter(array_map('absint',preg_split('/[,\\s]+/',(string)($p['gift_ids']??'')))));
+        $ids=array_unique(array_filter(array_map('absint',preg_split('/[,\s]+/',(string)($p['gift_ids']??'')))));
         $codes=array_unique(array_map('strtoupper',array_map('trim',explode(',',sanitize_text_field($p['excluded_countries']??'IT')))));
         $codes=array_values(array_filter($codes,static function($v){return (bool)preg_match('/^[A-Z]{2}$/',$v);}));
         update_option(self::OPT,[
