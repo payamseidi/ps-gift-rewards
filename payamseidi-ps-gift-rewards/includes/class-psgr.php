@@ -134,7 +134,16 @@ final class PSGR_Plugin {
                     $product = wc_get_product(absint($product_id));
                     if ($product) { echo '<option value="'.esc_attr($product_id).'" selected>'.esc_html($product->get_formatted_name()).'</option>'; }
                 }
-                echo '</select><p class="description">Select products from your WooCommerce catalog. Product selection does not reserve stock.</p>';
+                echo '</select><p class="description">Search the WooCommerce catalog. These products are not reserved until checkout.</p>';
+                echo '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:12px">';
+                foreach ((array) $value as $product_id) {
+                    $preview = wc_get_product(absint($product_id));
+                    if (!$preview) { continue; }
+                    echo '<div style="background:#fff;border:1px solid #dcdcde;border-radius:8px;padding:8px;max-width:120px;min-width:90px;text-align:center">';
+                    echo wp_kses_post($preview->get_image('thumbnail', ['style' => 'width:72px;height:72px;object-fit:contain']));
+                    echo '<div style="font-size:11px;line-height:1.4">'.esc_html($preview->get_name()).'</div></div>';
+                }
+                echo '</div>';
             } elseif ($type === 'status') {
                 echo '<select id="psgr_status" name="psgr[status]">';
                 foreach (['draft', 'paused', 'active'] as $status) { echo '<option value="'.esc_attr($status).'" '.selected($value, $status, false).'>'.esc_html(ucfirst($status)).'</option>'; }
