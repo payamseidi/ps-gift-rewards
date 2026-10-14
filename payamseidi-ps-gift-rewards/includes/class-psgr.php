@@ -10,6 +10,7 @@ final class PSGR_Plugin {
         add_action('admin_post_psgr_save', [$this, 'save']);
         add_action('admin_post_psgr_create', [$this, 'create']);
         add_action('admin_post_psgr_delete', [$this, 'delete']);
+        add_action('admin_enqueue_scripts', [$this, 'admin_assets']);
         add_action('wp_enqueue_scripts', [$this, 'assets']);
         add_action('woocommerce_before_cart_totals', [$this, 'selector']);
         add_action('woocommerce_review_order_before_payment', [$this, 'selector']);
@@ -20,6 +21,7 @@ final class PSGR_Plugin {
         add_action('woocommerce_after_calculate_totals', [$this, 'post_totals'], 9999);
         add_action('woocommerce_check_cart_items', [$this, 'validate']);
         add_action('woocommerce_checkout_process', [$this, 'validate']);
+        add_action('woocommerce_store_api_cart_errors', [$this, 'store_validate'], 10, 2);
         add_filter('woocommerce_get_item_data', [$this, 'item_data'], 10, 2);
         add_action('woocommerce_checkout_create_order_line_item', [$this, 'order_meta'], 10, 4);
         add_filter('woocommerce_cart_item_quantity', [$this, 'lock_quantity'], 10, 3);
@@ -50,6 +52,10 @@ final class PSGR_Plugin {
     private function gifts(array $campaign): array {
         $products = [];
         foreach ($campaign['gift_ids'] as $id) {
+            if (function_exists('pll_get_post')) {
+                $translated = pll_get_post($id, PSGR_Localization::language());
+                if (is_numeric($translated) && (int) $translated > 0) { $id = (int) $translated; }
+            }
             $p = wc_get_product($id);
             if (!$p || !$p->is_purchasable() || !$p->is_in_stock() || !$p->is_type('simple') && !$p->is_type('variation')) { continue; }
             if ($p->get_status() !== 'publish' && !$p->is_type('variation')) { continue; }
@@ -68,9 +74,16 @@ final class PSGR_Plugin {
         return $id > 0 && $id === $this->actual_id($line) &&
             ($line['_psgr_campaign'] ?? '') === $campaign['id'] && isset($allowed[$id]);
     }
+    public function admin_assets($hook): void {
+        if (isset($_GET['page']) && sanitize_key(wp_unslash($_GET['page'])) === 'ps-gift-rewards') {
+            wp_enqueue_script('wc-enhanced-select');
+            wp_enqueue_style('woocommerce_admin_styles');
+        }
+    }
     public function menu(): void {
         // PS Tools Core integration will use Core's verified menu registrar in a future build.
-        add_submenu_page('woocommerce', 'PS Gift Rewards', 'Gift Rewards', 'manage_woocommerce', 'ps-gift-rewards', [$this, 'admin']);
+        $parent = apply_filters('psgr_admin_parent_slug', 'woocommerce');
+        add_submenu_page(sanitize_key($parent), 'PS Gift Rewards', 'Gift Rewards', 'manage_woocommerce', 'ps-gift-rewards', [$this, 'admin']);
     }
     private function admin_url(string $id = ''): string {
         $args = ['page' => 'ps-gift-rewards'];
@@ -82,7 +95,7 @@ final class PSGR_Plugin {
         $all = PSGR_Campaigns::all();
         $id = isset($_GET['campaign']) ? sanitize_key(wp_unslash($_GET['campaign'])) : ($all[0]['id'] ?? 'default');
         $campaign = PSGR_Campaigns::get($id);
-        echo '<div class="wrap"><h1>PS Gift Rewards <small style="font-size:13px">0.3.0-alpha.1 · Payam Seidi</small></h1>';
+        echo '<div class="wrap"><h1>PS Gift Rewards <small style="font-size:13px">0.4.0-alpha.1 · Payam Seidi</small></h1>';
         echo '<p>Campaigns &amp; Rule Engine · Classic and Block Cart/Checkout alpha</p>';
         if (isset($_GET['saved'])) { echo '<div class="notice notice-success"><p>Campaign saved.</p></div>'; }
         echo '<h2>Campaigns</h2><table class="widefat striped"><thead><tr><th>Name</th><th>Status</th><th>Priority</th><th>Threshold</th><th></th></tr></thead><tbody>';
@@ -96,13 +109,16 @@ final class PSGR_Plugin {
         echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="psgr_save"><input type="hidden" name="campaign_id" value="'.esc_attr($campaign['id']).'">';
         wp_nonce_field('psgr_save');
         $rows = [
-            ['name', 'Campaign Name', 'text'], ['status', 'Status', 'status'], ['priority', 'Priority (higher wins)', 'number'],
+            ['name', 'Internal Campaign Name', 'text'],
+            ['name_en', 'English customer title', 'text'], ['name_it', 'Italian customer title', 'text'],
+            ['message_en', 'English eligible message', 'text'], ['message_it', 'Italian eligible message', 'text'],
+            ['status', 'Status', 'status'], ['priority', 'Priority (higher wins)', 'number'],
             ['min_total', 'Minimum products total after discounts, excluding shipping/tax', 'number'],
             ['max_value', 'Maximum gift sale value', 'number'],
             ['included_countries', 'Only countries (blank means all available)', 'csv'],
             ['excluded_countries', 'Excluded destination countries (ISO, e.g. IT)', 'csv'],
             ['excluded_coupons', 'Excluded coupons (comma separated)', 'csv'],
-            ['gift_ids', 'Gift product/variation IDs (comma separated)', 'csv'],
+            ['gift_ids', 'Gift products and variations', 'products'],
             ['starts_on', 'Start date (site time)', 'date'], ['ends_on', 'End date (site time)', 'date'],
             ['show_progress', 'Display unlock progress', 'checkbox'],
         ];
@@ -112,6 +128,22 @@ final class PSGR_Plugin {
             echo '<tr><th><label for="psgr_'.esc_attr($key).'">'.esc_html($label).'</label></th><td>';
             if ($type === 'checkbox') {
                 echo '<input type="checkbox" id="psgr_'.esc_attr($key).'" name="psgr['.esc_attr($key).']" value="1" '.checked((bool) $value, true, false).'>';
+            } elseif ($type === 'products') {
+                echo '<select id="psgr_gift_ids" class="wc-product-search" style="width:440px;max-width:100%" name="psgr[gift_ids][]" multiple="multiple" data-action="woocommerce_json_search_products_and_variations" data-placeholder="Search products and variations...">';
+                foreach ((array) $value as $product_id) {
+                    $product = wc_get_product(absint($product_id));
+                    if ($product) { echo '<option value="'.esc_attr($product_id).'" selected>'.esc_html($product->get_formatted_name()).'</option>'; }
+                }
+                echo '</select><p class="description">Search the WooCommerce catalog. These products are not reserved until checkout.</p>';
+                echo '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:12px">';
+                foreach ((array) $value as $product_id) {
+                    $preview = wc_get_product(absint($product_id));
+                    if (!$preview) { continue; }
+                    echo '<div style="background:#fff;border:1px solid #dcdcde;border-radius:8px;padding:8px;max-width:120px;min-width:90px;text-align:center">';
+                    echo wp_kses_post($preview->get_image('thumbnail', ['style' => 'width:72px;height:72px;object-fit:contain']));
+                    echo '<div style="font-size:11px;line-height:1.4">'.esc_html($preview->get_name()).'</div></div>';
+                }
+                echo '</div>';
             } elseif ($type === 'status') {
                 echo '<select id="psgr_status" name="psgr[status]">';
                 foreach (['draft', 'paused', 'active'] as $status) { echo '<option value="'.esc_attr($status).'" '.selected($value, $status, false).'>'.esc_html(ucfirst($status)).'</option>'; }
@@ -136,9 +168,10 @@ final class PSGR_Plugin {
         $existing = PSGR_Campaigns::get($id);
         if (!$existing) { wp_die('Campaign not found', '', ['response' => 404]); }
         $p = isset($_POST['psgr']) && is_array($_POST['psgr']) ? wp_unslash($_POST['psgr']) : [];
-        foreach (['name', 'status', 'priority', 'min_total', 'max_value', 'included_countries', 'excluded_countries', 'excluded_coupons', 'gift_ids', 'starts_on', 'ends_on'] as $field) {
+        foreach (['name', 'name_en', 'name_it', 'message_en', 'message_it', 'status', 'priority', 'min_total', 'max_value', 'included_countries', 'excluded_countries', 'excluded_coupons', 'starts_on', 'ends_on'] as $field) {
             $existing[$field] = isset($p[$field]) && is_scalar($p[$field]) ? $p[$field] : '';
         }
+        $existing['gift_ids'] = isset($p['gift_ids']) && is_array($p['gift_ids']) ? $p['gift_ids'] : [];
         $existing['show_progress'] = !empty($p['show_progress']);
         PSGR_Campaigns::put($existing);
         wp_safe_redirect(add_query_arg('saved', '1', $this->admin_url($id))); exit;
@@ -166,7 +199,7 @@ final class PSGR_Plugin {
         wp_enqueue_script('psgr', PSGR_URL.'assets/gifts.js', ['jquery'], PSGR_VERSION, true);
         wp_localize_script('psgr', 'PSGR', [
             'ajax' => admin_url('admin-ajax.php'), 'nonce' => wp_create_nonce('psgr_choose'),
-            'error' => __('We could not update your gift. Try again.', 'payamseidi-ps-gift-rewards'),
+            'error' => PSGR_Localization::text('error'),
         ]);
     }
     public function selector(): void { echo $this->render(); }
@@ -178,21 +211,21 @@ final class PSGR_Plugin {
         $eligible = PSGR_Rules::campaign_matches($campaign, $this->context($cart));
         if (!$eligible && !$campaign['show_progress']) { return ''; }
         ob_start();
-        echo '<section class="psgr-panel" aria-label="Gift rewards"><h3>'.esc_html($campaign['name']).'</h3>';
+        echo '<section class="psgr-panel" aria-label="'.esc_attr(PSGR_Localization::text('gift_rewards')).'"><h3>'.esc_html(PSGR_Localization::campaign_title($campaign)).'</h3>';
         if (!$eligible) {
             $remaining = max(0, (float) $campaign['min_total'] - $this->context($cart)['cart_subtotal']);
-            echo '<p>'.esc_html(sprintf(__('Add %s more to unlock a complimentary gift.', 'payamseidi-ps-gift-rewards'), wp_strip_all_tags(wc_price($remaining)))).'</p>';
+            echo '<p>'.esc_html(sprintf(PSGR_Localization::text('unlock_prefix'), wp_strip_all_tags(wc_price($remaining)))).'</p>';
         } else {
             $selected = $this->selected($cart);
-            echo '<p>'.esc_html__('Choose one complimentary gift with your order.', 'payamseidi-ps-gift-rewards').'</p><div class="psgr-grid">';
+            echo '<p>'.esc_html(PSGR_Localization::campaign_message($campaign)).'</p><div class="psgr-grid">';
             $products = $this->gifts($campaign);
             foreach ($products as $id => $product) {
-                echo '<div class="psgr-card">'.wp_kses_post($product->get_image('woocommerce_thumbnail')).'<strong>'.esc_html($product->get_name()).'</strong><span>'.wp_kses_post(wc_price($product->get_price())).' · <b>FREE</b></span>';
-                echo '<button type="button" class="button psgr-choice" data-id="'.esc_attr($id).'" '.disabled($selected === $id, true, false).'>'.esc_html($selected === $id ? __('Selected', 'payamseidi-ps-gift-rewards') : __('Choose gift', 'payamseidi-ps-gift-rewards')).'</button></div>';
+                echo '<div class="psgr-card">'.wp_kses_post($product->get_image('woocommerce_thumbnail')).'<strong>'.esc_html($product->get_name()).'</strong><span>'.wp_kses_post(wc_price($product->get_price())).' · <b>'.esc_html(PSGR_Localization::text('free')).'</b></span>';
+                echo '<button type="button" class="button psgr-choice" data-id="'.esc_attr($id).'" '.disabled($selected === $id, true, false).'>'.esc_html($selected === $id ? PSGR_Localization::text('selected') : PSGR_Localization::text('choose')).'</button></div>';
             }
             echo '</div>';
-            if (!$products) { echo '<p>'.esc_html__('No gifts are currently available.', 'payamseidi-ps-gift-rewards').'</p>'; }
-            if ($selected) { echo '<button type="button" class="psgr-choice psgr-remove" data-id="0">'.esc_html__('Remove gift', 'payamseidi-ps-gift-rewards').'</button>'; }
+            if (!$products) { echo '<p>'.esc_html(PSGR_Localization::text('no_gifts')).'</p>'; }
+            if ($selected) { echo '<button type="button" class="psgr-choice psgr-remove" data-id="0">'.esc_html(PSGR_Localization::text('remove')).'</button>'; }
         }
         echo '<p class="psgr-status" role="status" aria-live="polite"></p></section>';
         return ob_get_clean();
@@ -218,9 +251,11 @@ final class PSGR_Plugin {
             return new WP_Error('PSGR-305', __('Your order no longer qualifies for this gift.', 'payamseidi-ps-gift-rewards'));
         }
         if ($id && $this->selected($cart) === $id) { return true; }
+        $old_keys = [];
         foreach ($cart->get_cart() as $key => $line) {
-            if (!empty($line[self::MARK])) { $cart->remove_cart_item($key); }
+            if (!empty($line[self::MARK])) { $old_keys[] = $key; }
         }
+        $new_key = '';
         if ($id) {
             $p = $allowed[$id];
             $is_variation = $p->is_type('variation');
@@ -239,6 +274,11 @@ final class PSGR_Plugin {
             if (!$added) {
                 return new WP_Error('PSGR-306', __('We could not add this gift. Please choose another.', 'payamseidi-ps-gift-rewards'));
             }
+            $new_key = $added;
+        }
+        // Preserve the existing gift if adding the replacement fails.
+        foreach ($old_keys as $key) {
+            if ($key !== $new_key) { $cart->remove_cart_item($key); }
         }
         $cart->calculate_totals();
         return true;
@@ -269,9 +309,10 @@ final class PSGR_Plugin {
         $data['visible'] = true;
         $data['eligible'] = (bool) $eligible;
         $data['campaign_id'] = $campaign['id'];
-        $data['title'] = (string) $campaign['name'];
+        $data['title'] = PSGR_Localization::campaign_title($campaign);
+        $data['strings'] = PSGR_Localization::strings();
         if ($eligible) {
-            $data['message'] = __('Choose one complimentary gift with your order.', 'payamseidi-ps-gift-rewards');
+            $data['message'] = PSGR_Localization::campaign_message($campaign);
             $data['selected_id'] = $this->selected($cart);
             foreach ($this->gifts($campaign) as $id => $p) {
                 $image_id = (int) $p->get_image_id();
@@ -288,7 +329,7 @@ final class PSGR_Plugin {
             }
         } else {
             $remaining = max(0, (float) $campaign['min_total'] - $context['cart_subtotal']);
-            $data['message'] = __('Add more products to unlock a complimentary gift.', 'payamseidi-ps-gift-rewards');
+            $data['message'] = PSGR_Localization::text('unlock_intro');
             $data['remaining'] = wp_strip_all_tags(wc_price($remaining));
         }
         return $data;
@@ -326,23 +367,34 @@ final class PSGR_Plugin {
         if ($changed) { $cart->calculate_totals(); }
         $busy = false;
     }
-    public function validate(): void {
-        if (!function_exists('WC') || !WC()->cart) { return; }
-        $cart = WC()->cart;
+    /** One validation contract for Classic checkout and the Store API. */
+    public function gift_issues($cart): array {
         $campaign = $this->campaign($cart);
         $allowed = $campaign ? $this->gifts($campaign) : [];
         $count = 0;
+        $issues = [];
         foreach ($cart->get_cart() as $line) {
             if (empty($line[self::MARK])) { continue; }
             $count++;
             if (!$this->valid_gift($line, $campaign, $allowed)) {
-                wc_add_notice(__('Your gift is no longer eligible. Please review your cart.', 'payamseidi-ps-gift-rewards'), 'error'); return;
+                $issues['PSGR-401'] = __('Your gift is no longer eligible. Please review your cart.', 'payamseidi-ps-gift-rewards');
             }
         }
-        if ($count > 1) { wc_add_notice(__('Only one gift can be selected.', 'payamseidi-ps-gift-rewards'), 'error'); }
+        if ($count > 1) { $issues['PSGR-402'] = __('Only one gift can be selected.', 'payamseidi-ps-gift-rewards'); }
+        return $issues;
+    }
+    public function store_validate($errors, $cart = null): void {
+        if (!($errors instanceof WP_Error) || !function_exists('WC')) { return; }
+        $cart = $cart instanceof WC_Cart ? $cart : WC()->cart;
+        if (!$cart) { return; }
+        foreach ($this->gift_issues($cart) as $code => $message) { $errors->add($code, $message); }
+    }
+    public function validate(): void {
+        if (!function_exists('WC') || !WC()->cart) { return; }
+        foreach ($this->gift_issues(WC()->cart) as $code => $message) { wc_add_notice($message, 'error'); }
     }
     public function item_data($data, $line) {
-        if (!empty($line[self::MARK])) { $data[] = ['key' => __('Reward', 'payamseidi-ps-gift-rewards'), 'value' => __('Complimentary gift', 'payamseidi-ps-gift-rewards')]; }
+        if (!empty($line[self::MARK])) { $data[] = ['key' => PSGR_Localization::text('reward'), 'value' => PSGR_Localization::text('complimentary')]; }
         return $data;
     }
     public function order_meta($item, $key, $values, $order): void {

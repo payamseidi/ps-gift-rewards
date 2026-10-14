@@ -17,7 +17,7 @@ namespace Automattic\WooCommerce\StoreApi\Exceptions {
 namespace {
     define('ABSPATH', __DIR__);
     define('ARRAY_A', 'ARRAY_A');
-    define('PSGR_VERSION', '0.3.0-alpha.1');
+    define('PSGR_VERSION', '0.4.0-alpha.1');
     define('PSGR_URL', 'https://example.invalid/psgr/');
     $GLOBALS['options'] = [];
     $GLOBALS['hooks'] = [];
@@ -39,6 +39,7 @@ namespace {
     function is_admin() { return false; }
     function wp_doing_ajax() { return false; }
     function wp_date($pattern) { return '2026-10-14'; }
+    function get_locale() { return 'en_GB'; }
     function __( $message, $domain = null ) { return $message; }
     function is_wp_error($value) { return $value instanceof WP_Error; }
     function wp_strip_all_tags($value) { return strip_tags($value); }
@@ -106,6 +107,7 @@ namespace {
         public function __construct() { $this->customer = new Mock_Customer(); $this->cart = new Mock_Cart(); }
     }
     function WC() { return $GLOBALS['woocommerce']; }
+    require_once __DIR__.'/../payamseidi-ps-gift-rewards/includes/class-psgr-localization.php';
     require_once __DIR__.'/../payamseidi-ps-gift-rewards/includes/class-psgr-rules.php';
     require_once __DIR__.'/../payamseidi-ps-gift-rewards/includes/class-psgr-campaigns.php';
     require_once __DIR__.'/../payamseidi-ps-gift-rewards/includes/class-psgr.php';
@@ -122,9 +124,11 @@ namespace {
     PSGR_Blocks::boot();
     check(isset($GLOBALS['endpoint']) && $GLOBALS['endpoint']['namespace'] === 'ps-gift-rewards', 'cart endpoint registered');
     check(isset($GLOBALS['updater']) && $GLOBALS['updater']['namespace'] === 'ps-gift-rewards', 'Store API update registered');
-    check(count(PSGR_Blocks::schema()) === 8, 'schema declares all data fields');
+    check(count(PSGR_Blocks::schema()) === 9, 'schema declares all data fields');
+    check(isset(PSGR_Blocks::schema()['strings']), 'localized string schema exposed');
     $data = PSGR_Blocks::data();
     check($data['eligible'] && count($data['gifts']) === 2, 'eligible gifts visible');
+    check($data['strings']['free'] === 'FREE', 'localized strings sent through Store API');
     check($data['selected_id'] === 0, 'initially no gift');
     PSGR_Blocks::update(['action' => 'choose', 'id' => 12]);
     $payload = PSGR_Blocks::data();

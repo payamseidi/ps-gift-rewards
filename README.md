@@ -1,16 +1,26 @@
-# PS Gift Rewards
+# PS Gift Rewards for WooCommerce
 
-WooCommerce gift and reward campaigns by **Payam Seidi** (PS Tools family).
+**By Payam Seidi · PS Tools Family · 0.4.0-alpha.1 (staging only)**
 
-**Version:** 0.3.0-alpha.1 — for staging only. AmicEarth is a configurable use case, not a hard-coded brand.
+Configurable gift campaigns for WooCommerce. AmicEarth is an initial campaign deployment, not a hard-coded plugin brand. Example: all shipping destinations except Italy, €69 merchandise threshold after discounts, customer selects one gift priced up to €10.
 
-### Included
-Multi-campaign rules, country/threshold/coupon checks, one free gift, server validation, responsive gift chooser, Classic Cart/Checkout, WooCommerce Blocks + Store API, HPOS order line metadata and unlock progress.
+## Implemented
 
-### Quality checks
-Run PHP lint, Node JavaScript syntax check, php tests/rules-smoke.php and php tests/blocks-smoke.php. GitHub Actions packages the WordPress install ZIP after running checks.
+- Multiple campaigns, prioritization, country/coupon/date rules and after-discount eligibility
+- Classic Cart/Checkout gift UI and an experimental Cart/Checkout Blocks Store API extension
+- Separate free cart line, original retail price metadata and gift tampering validation
+- WooCommerce admin product search for gifts with thumbnails for **selected** items
+- Localized English/Italian titles, messages and gift controls; Polylang product-ID lookup where available
+- Safe gift swap: existing gift stays in cart if adding the replacement fails
+- Shared server-side checkout validation for Classic and Store API (PSGR-401/402)
+- PHP/JS lint and smoke tests, CI-generated plugin ZIP artifact
 
-### Limitations
-This integration uses the experimental WooCommerce ExperimentalOrderMeta slot. No actual WordPress checkout/payment end-to-end test has been completed. Never use on a live store until staging acceptance passes. Polylang, reports and PS Tools Core admin integration remain to be built.
+## Installation
 
-See docs/STATUS.md and docs/TEST-MATRIX.md.
+Install the ZIP under **Plugins → Add New → Upload Plugin** in a **staging** WordPress site. Requires WooCommerce, WordPress 6.2+ and PHP 7.4+. Configure under WooCommerce → Gift Rewards. Native product search replaces manual IDs. One gift maximum per cart/order.
+
+## Limitations
+
+**Not production-certified.** No live WordPress/WooCommerce end-to-end checkout run yet. Block UI uses WooCommerce ExperimentalOrderMeta, which may change. Currency conversion, stacking multiple gifts, persisted claims/cost reporting, and full PS Tools Core UI integration remain on the roadmap. Polylang compatibility depends on installed integrations and is not formally certified.
+
+See [docs/STATUS.md](docs/STATUS.md) for release gates, backlog, data contracts, dependencies and known issues.

@@ -6,6 +6,7 @@ final class PSGR_Campaigns {
     public static function defaults(): array {
         return [
             'id' => 'default', 'name' => 'International Shipping Gift',
+            'name_en' => '', 'name_it' => '', 'message_en' => '', 'message_it' => '',
             'status' => 'paused', 'priority' => 100, 'starts_on' => '', 'ends_on' => '',
             'min_total' => 69.0, 'max_value' => 10.0,
             'included_countries' => [], 'excluded_countries' => ['IT'],
@@ -57,6 +58,9 @@ final class PSGR_Campaigns {
         $c = array_merge(self::defaults(), $input);
         $c['id'] = sanitize_key($c['id']);
         $c['name'] = sanitize_text_field($c['name']);
+        foreach (['name_en', 'name_it', 'message_en', 'message_it'] as $field) {
+            $c[$field] = sanitize_text_field((string) ($c[$field] ?? ''));
+        }
         $c['status'] = in_array($c['status'], ['active', 'paused', 'draft'], true) ? $c['status'] : 'paused';
         $c['priority'] = max(0, min(100000, (int) $c['priority']));
         $c['min_total'] = max(0, (float) $c['min_total']);
